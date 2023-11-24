@@ -54,7 +54,7 @@ system.clk_domain.voltage_domain = VoltageDomain()
 
 # Set up the system
 system.mem_mode = 'timing'               # Use timing accesses
-system.mem_ranges = [AddrRange('512MB')] # Create an address range
+system.mem_ranges = [AddrRange('8192MB')] # Create an address range
 
 # Create a simple CPU
 system.cpu = TimingSimpleCPU()
@@ -88,7 +88,7 @@ system.system_port = system.membus.slave
 isa = str(m5.defines.buildEnv['TARGET_ISA']).lower()
 
 # Run 'hello' and use the compiled ISA to find the binary
-binary = 'tests/test-progs/hello/bin/' + isa + '/linux/hello'
+binary = '../../tests/test-progs/hello/bin/' + isa + '/linux/hello'
 
 # Create a process for a simple "Hello World" application
 process = Process()
