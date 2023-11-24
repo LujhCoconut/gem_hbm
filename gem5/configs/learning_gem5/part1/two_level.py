@@ -66,7 +66,7 @@ SimpleOpts.set_usage("usage: %prog [options] <binary to execute>")
 isa = str(m5.defines.buildEnv['TARGET_ISA']).lower()
 
 # Default to running 'hello', use the compiled ISA to find the binary
-binary = 'tests/test-progs/hello/bin/' + isa + '/linux/hello'
+binary = '../../tests/test-progs/hello/bin/' + isa + '/linux/hello'
 
 # Check if there was a binary passed in via the command line and error if
 # there are too many arguments
@@ -86,7 +86,7 @@ system.clk_domain.voltage_domain = VoltageDomain()
 
 # Set up the system
 system.mem_mode = 'timing'               # Use timing accesses
-system.mem_ranges = [AddrRange('512MB')] # Create an address range
+system.mem_ranges = [AddrRange('8192MB')] # Create an address range
 
 # Create a simple CPU
 system.cpu = TimingSimpleCPU()
