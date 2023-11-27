@@ -67,7 +67,7 @@ system.cpu.icache_port = system.l1_cache.cpu_side
 
 在本例中，cpu 的端口是请求端口，缓存的端口是响应端口。请求端口和响应端口可以在任何一边，但都将建立相同的连接。建立连接后，请求者就可以向响应者发送请求。建立连接的幕后工作非常复杂，但对于大多数用户来说，其中的细节并不重要。
 
-在 gem5 Python 配置中，两个端口的另一个值得注意的神奇之处在于，它允许在一侧有一个端口，而在另一侧有一个端口数组。例如
+在 gem5 Python 配置中，两个端口的另一个值得注意的神奇之处在于，它**允许在一侧有一个端口，而在另一侧有一个端口数组**。例如
 
 ```python
 system.cpu.icache_port = system.membus.cpu_side_ports
@@ -174,6 +174,12 @@ class L1Cache(Cache):
            This must be defined in a subclass"""
         raise NotImplementedError
 
+#	def connectCPU(self, cpu):
+    # need to define this in a base class!
+#   	raise NotImplementedError
+
+#	def connectBus(self, bus):
+#    	self.mem_side = bus.cpu_side_ports       
 ```
 
 我们扩展了 BaseCache，并在 BaseCache SimObject 中设置了大部分没有默认值的参数。接下来，我们再创建两个 L1Cache 的子类，即 L1DCache 和 L1ICache.现在，我们已经指定了 BaseCache 所需的所有必要参数，接下来要做的就是实例化子类，并将缓存连接到互连网。不过，将大量对象连接到复杂的互连上会使配置文件迅速增大并变得不可读。因此，让我们先为 Cache 的子类添加一些辅助函数。记住，这些只是 Python 类，所以我们可以用它们做任何 Python 类能做的事情。
@@ -346,3 +352,296 @@ system.workload = SEWorkload.init_compatible(options.binary)
 ```
 
 现在，你可以运行 build/X86/gem5.opt configs/tutorial/part1/two_level.py --help 来显示刚刚添加的选项。
+
+
+
+## 了解 gem5 统计和输出
+
+运行 gem5 后，除了模拟脚本打印出的任何信息外，还会在名为 m5out 的目录下生成三个文件：
+
+**config.ini**
+
+包含为模拟创建的每个 SimObject 及其参数值的列表。
+
+**config.json**
+
+与 config.ini 相同，但采用 json 格式
+
+**stats.txt**
+
+模拟登记的所有 gem5 统计数据的文本表示。
+
+
+
+### **config.ini**
+
+该文件是模拟结果的最终版本。模拟的每个模拟对象的所有参数，无论是在配置脚本中设置的，还是使用默认值的，都显示在该文件中。
+
+```ini
+[root]
+type=Root
+children=system
+eventq_index=0
+full_system=false
+sim_quantum=0
+time_sync_enable=false
+time_sync_period=100000000000
+time_sync_spin_threshold=100000000
+
+[system]
+type=System
+children=clk_domain cpu cpu_clk_domain cpu_voltage_domain dvfs_handler l2 mem_ctrls membus tol2bus voltage_domain
+boot_osflags=a
+cache_line_size=64
+clk_domain=system.clk_domain
+default_p_state=UNDEFINED
+eventq_index=0
+exit_on_work_items=false
+init_param=0
+kernel=
+kernel_addr_check=true
+kernel_extras=
+kvm_vm=Null
+load_addr_mask=18446744073709551615
+load_offset=0
+mem_mode=timing
+mem_ranges=0:536870911:0:0:0:0
+memories=system.mem_ctrls
+mmap_using_noreserve=false
+multi_thread=false
+num_work_ids=16
+p_state_clk_gate_bins=20
+p_state_clk_gate_max=1000000000000
+p_state_clk_gate_min=1000
+power_model=
+readfile=
+symbolfile=
+thermal_components=
+thermal_model=Null
+work_begin_ckpt_count=0
+work_begin_cpu_id_exit=-1
+work_begin_exit_count=0
+work_cpus_ckpt_count=0
+work_end_ckpt_count=0
+work_end_exit_count=0
+work_item_id=-1
+system_port=system.membus.slave[0]
+```
+
+在这里我们可以看到，在每个模拟对象的描述开头，首先是其在配置文件中创建的名称，并用方括号包围（例如 [system.membus]）。
+
+接下来，将显示 SimObject 的每个参数及其值，包括配置文件中未明确设置的参数。例如，配置文件将时钟域设置为 1 GHz（本例中为 1000 ticks）。但是，配置文件并未设置缓存行大小（系统中为 64）对象。
+
+配置文件（config.ini）是一个宝贵的工具，可确保你模拟的是你认为你正在模拟的东西。在 gem5 中，有许多可能的方法来设置默认值和覆盖默认值。 **"最佳做法 "是始终检查 config.ini，以确保配置文件中设置的值会传播到实际的 SimObject 实例化中。**
+
+
+
+### stats.txt
+
+gem5有一个灵活的统计生成系统。gem5统计在gem5维基站点上有详细介绍。模拟对象的每个实例都有自己的统计数据。在仿真结束时，或在发出特殊的统计转储命令时，**所有模拟对象的当前统计状态都会被转储到一个文件中**。
+
+首先，统计文件包含有关执行情况的一般统计信息：
+
+```txt
+---------- Begin Simulation Statistics ----------                                                                          
+sim_seconds                                  0.000033                       # Number of seconds simulated                         
+sim_ticks                                    33476500                       # Number of ticks simulated                         
+final_tick                                   33476500                       # Number of ticks from beginning of simulation (restored from checkpoints and never reset)
+sim_freq                                 1000000000000                       # Frequency of simulated ticks                      
+host_inst_rate                                  27354                       # Simulator instruction rate (inst/s)                 
+host_op_rate                                    49375                       # Simulator op (including micro ops) rate (op/s)    
+host_tick_rate                              160246965                       # Simulator tick rate (ticks/s)                    
+host_mem_usage                                 663324                       # Number of bytes of host memory used                                         
+host_seconds                                     0.21                       # Real time elapsed on the host                     
+sim_insts                                        5712                       # Number of instructions simulated                  
+sim_ops                                         10313                       # Number of ops (including micro ops) simulated                               
+system.voltage_domain.voltage                       1                       # Voltage in Volts                                                                                
+```
+
+统计转储以 ---------- Begin Simulation Statistics ---------- 开始。如果 gem5 执行期间有多个统计转储，则单个文件中可能有多个这样的文件。这种情况常见于长时间运行的应用程序，或从检查点恢复时。
+
+每个统计量都有一个名称（第一列）、一个值（第二列）和一个说明（最后一列，前面加 #），然后是统计量的单位。
+
+大多数统计量都可以通过说明自行解释。其中几个重要的统计数据是：sim_seconds（模拟的总模拟时间）、sim_insts（CPU 执行的指令数）和 host_inst_rate（告诉你 gem5 的性能）。
+
+接下来，将打印模拟对象的统计数据。例如，CPU 统计信息包含系统调用次数、缓存系统和翻译缓冲区统计信息等。
+
+
+
+文件后面是内存控制器统计数据。其中包含每个组件读取的字节数以及这些组件使用的平均带宽等信息。
+
+
+
+## 使用默认配置脚本
+
+在本章中，我们将探讨如何使用 gem5 自带的默认配置脚本。gem5 随附了许多配置脚本，可让你快速使用 gem5。然而，一个常见的误区是，在使用这些脚本时并不完全了解正在模拟的内容。在使用 gem5 进行计算机体系结构研究时，充分了解所模拟的系统非常重要。本章将向你介绍一些重要选项和默认配置脚本的部分内容。
+
+在过去几章中，您已经从头开始创建了自己的配置脚本。这非常强大，因为它允许你指定每一个系统参数。然而，有些系统的设置非常复杂（例如，全系统的 ARM 或 x86 机器）。幸运的是，gem5 开发人员提供了许多脚本来引导构建系统的过程。
+
+### 参观目录结构
+
+gem5 的所有配置文件都可以在 configs/ 目录中找到。目录结构如下所示：
+
+```shell
+configs/boot:
+bbench-gb.rcS  bbench-ics.rcS  hack_back_ckpt.rcS  halt.sh
+
+configs/common:
+Benchmarks.py   Caches.py  cpu2000.py    FileSystemConfig.py  GPUTLBConfig.py   HMC.py       MemConfig.py   Options.py     Simulation.py
+CacheConfig.py  cores      CpuConfig.py  FSConfig.py          GPUTLBOptions.py  __init__.py  ObjectList.py  SimpleOpts.py  SysPaths.py
+
+configs/dist:
+sw.py
+
+configs/dram:
+lat_mem_rd.py  low_power_sweep.py  sweep.py
+
+configs/example:
+apu_se.py  etrace_replay.py  garnet_synth_traffic.py  hmctest.py    hsaTopology.py  memtest.py  read_config.py  ruby_direct_test.py      ruby_mem_test.py     sc_main.py
+arm        fs.py             hmc_hello.py             hmc_tgen.cfg  memcheck.py     noc_config  riscv           ruby_gpu_random_test.py  ruby_random_test.py  se.py
+
+configs/learning_gem5:
+part1  part2  part3  README
+
+configs/network:
+__init__.py  Network.py
+
+configs/nvm:
+sweep_hybrid.py  sweep.py
+
+configs/ruby:
+AMD_Base_Constructor.py  CHI.py        Garnet_standalone.py  __init__.py              MESI_Three_Level.py  MI_example.py      MOESI_CMP_directory.py  MOESI_hammer.py
+CHI_config.py            CntrlBase.py  GPU_VIPER.py          MESI_Three_Level_HTM.py  MESI_Two_Level.py    MOESI_AMD_Base.py  MOESI_CMP_token.py      Ruby.py
+
+configs/splash2:
+cluster.py  run.py
+
+configs/topologies:
+BaseTopology.py  Cluster.py  CrossbarGarnet.py  Crossbar.py  CustomMesh.py  __init__.py  MeshDirCorners_XY.py  Mesh_westfirst.py  Mesh_XY.py  Pt2Pt.py
+```
+
+#### **boot/**
+
+这些是在全系统模式下使用的 rcS 文件。这些文件在 Linux 启动后由模拟器加载，并由 shell 执行。其中大部分用于控制在全系统模式下运行的基准。有些是实用功能，如 hack_back_ckpt.rcS。这些文件将在全系统模拟一章中详细介绍。
+
+#### **common/**
+
+该目录包含大量用于创建模拟系统的辅助脚本和函数。例如，Caches.py 与前几章创建的 caches.py 和 caches_opts.py 文件类似。
+Options.py 包含多种可在命令行上设置的选项。如 CPU 数量、系统时钟等。你可以在这里查看想要更改的选项是否已经有了命令行参数。
+
+**CacheConfig.py** 包含为经典内存系统设置缓存参数的选项和函数。
+
+**MemConfig.py** 提供了一些用于设置内存系统的辅助函数。
+
+**FSConfig.py** 包含为多种不同系统设置全系统仿真所需的函数。全系统仿真将在单独的一章中进一步讨论。
+
+**Simulation.py** 包含许多用于设置和运行 gem5 的辅助函数。该文件中包含的许多代码都是用来管理保存和恢复检查点的。下文 examples/ 中的示例配置文件使用该文件中的函数来执行 gem5 仿真。该文件相当复杂，但也允许在模拟运行方式上有很大的灵活性。
+
+#### **dram/**
+
+Contains scripts to test DRAM.
+
+#### **example/**
+
+This directory contains some example gem5 configuration scripts that can be used out-of-the-box to run gem5. Specifically, `se.py` and `fs.py` are quite useful. More on these files can be found in the next section. There are also some other utility configuration scripts in this directory.
+
+#### **learning_gem5/**
+
+This directory contains all gem5 configuration scripts found in the learning_gem5 book.
+
+#### **network/**
+
+This directory contains the configurations scripts for a HeteroGarnet network.
+
+#### **nvm/**
+
+This directory contains example scripts using the NVM interface.
+
+#### **ruby/**
+
+This directory contains the configurations scripts for Ruby and its included cache coherence protocols. More details can be found in the chapter on Ruby.
+
+#### **splash2/**
+
+This directory contains scripts to run the splash2 benchmark suite with a few options to configure the simulated system.
+
+#### **topologies/**
+
+This directory contains the implementation of the topologies that can be used when creating the Ruby cache hierarchy. More details can be found in the chapter on Ruby.
+
+
+
+### 使用se.py & fs.py
+
+在本节中，我将讨论一些可以通过命令行传递给 se.py 和fs.py 的常用选项。有关如何运行全系统仿真的更多详情，请参阅全系统仿真章节。在此，我将讨论这两个文件共有的选项。
+
+本节讨论的大部分选项都可以在 Options.py 中找到，并在函数 addCommonOptions 中注册。本节不详细介绍所有选项。要查看所有选项，请使用 --help 运行配置脚本，或阅读脚本的源代码。
+
+首先，让我们不带任何参数地运行 hello world 程序：
+
+```shell
+build/X86/gem5.opt configs/example/se.py --cmd=tests/test-progs/hello/bin/x86/linux/hello
+```
+
+然而，这根本不是一个非常有趣的模拟！默认情况下，gem5 使用原子 CPU 并使用原子内存访问，因此没有真正的时序数据报告！要确认这一点，你可以查看 m5out/config.ini。
+
+要在定时模式下实际运行 gem5，我们需要指定 CPU 类型。同时，我们还可以指定 L1 缓存的大小。
+
+```shell
+build/X86/gem5.opt configs/example/se.py --cmd=tests/test-progs/hello/bin/x86/linux/hello --cpu-type=TimingSimpleCPU --l1d_size=64kB --l1i_size=16kB
+```
+
+现在，让我们检查一下 config.ini 文件，确保这些选项能正确传播到最终系统中。如果在 m5out/config.ini 文件中搜索 "缓存"，你会发现没有创建缓存！虽然我们指定了缓存的大小，但并没有指定系统应该使用缓存，所以缓存没有创建。**正确的命令行**应该是
+
+```shell
+build/X86/gem5.opt configs/example/se.py --cmd=tests/test-progs/hello/bin/x86/linux/hello --cpu-type=TimingSimpleCPU --l1d_size=64kB --l1i_size=16kB --caches
+```
+
+在最后一行，我们看到总时间从 454646000 ticks 变为 31680000，快了很多！看来缓存可能已经启用了。不过，**最好还是仔细检查一下 config.ini 文件**。
+
+
+
+### 一些se.py & fs.py 的常见选项
+
+运行时会打印所有可能的选项：
+
+```shell
+build/X86/gem5.opt configs/example/se.py --help
+```
+
+以下是该清单中的几个重要选项：
+
+- `--cpu-type=CPU_TYPE`
+  - 运行 CPU 的类型。这是一个必须始终设置的重要参数。默认值为原子，不执行时序模拟。
+
+- `--sys-clock=SYS_CLOCK`
+  - 以系统速度运行区块的顶级时钟。
+
+- `--cpu-clock=CPU_CLOCK`
+  - 以 CPU 速度运行的程序块的时钟。这与上述系统时钟是分开的。
+
+- `--mem-type=MEM_TYPE`
+  - 使用的内存类型。选项包括不同的 DDR 内存和 ruby 内存控制器。
+
+- `--caches`
+  - 使用传统缓存进行模拟。
+
+- `--l2cache`
+  - 如果使用传统缓存，则使用二级缓存进行模拟。
+
+- `--ruby`
+  - Use Ruby instead of the classic caches as the cache system simulation.
+- `-m TICKS, --abs-max-tick=TICKS`
+  - Run to absolute simulated tick specified including ticks from a restored checkpoint. This is useful if you only want simulate for a certain amount of simulated time.
+- `-I MAXINSTS, --maxinsts=MAXINSTS`
+  - Total number of instructions to simulate (default: run forever). This is useful if you want to stop simulation after a certain number of instructions has been executed.
+- `-c CMD, --cmd=CMD`
+  - The binary to run in syscall emulation mode.
+- `-o OPTIONS, --options=OPTIONS`
+  - The options to pass to the binary, use ” ” around the entire string. This is useful when you are running a command which takes options. You can pass both arguments and options (e.g., –whatever) through this variable.
+- `--output=OUTPUT`
+  - Redirect stdout to a file. This is useful if you want to redirect the output of the simulated application to a file instead of printing to the screen. Note: to redirect gem5 output, you have to pass a parameter before the configuration script.
+- `--errout=ERROUT`
+  - Redirect stderr to a file. Similar to above.
+
+[gem5: Using the default configuration scripts](https://www.gem5.org/documentation/learning_gem5/part1/example_configs/)
