@@ -645,3 +645,743 @@ build/X86/gem5.opt configs/example/se.py --help
   - Redirect stderr to a file. Similar to above.
 
 [gem5: Using the default configuration scripts](https://www.gem5.org/documentation/learning_gem5/part1/example_configs/)
+
+
+
+## 修改与扩展
+
+### 创建一个非常简单的模拟对象
+
+注意：gem5 有一个名为 SimpleObject 的 SimObject。**实现另一个 SimObject 简单对象将导致编译器问题混乱**。
+
+gem5 中的几乎所有对象都继承自基本 SimObject 类型。SimObjects 为 gem5 中的所有对象导出了主要接口。**SimObjects 是经过包装的 C++ 对象，可通过 Python 配置脚本访问。**
+
+SimObjects 可以有很多参数，这些参数通过 Python 配置文件设置。除了整数和浮点数等简单参数外，它们还可以拥有其他模拟对象作为参数。这样就可以创建复杂的系统层次结构，就像真实的机器一样。
+
+在本章中，我们将逐步创建一个简单的 "HelloWorld "模拟对象。目的是向您介绍如何创建 SimObject 以及所有 SimObject 所需的模板代码。我们还将创建一个简单的 Python 配置脚本，用于实例化我们的 SimObject。
+
+在接下来的几章中，我们将使用这个简单的 SimObject 并对其进行扩展，包括调试支持、动态事件和参数。
+
+#### **Using git branches**
+
+在 gem5 中添加每个新功能时，通常都会使用一个新的 git 分支。
+
+在 gem5 中添加新功能或修改某些内容时，第一步是创建一个新分支来存储您的修改。有关 Git 分支的详细信息，请参阅“Git”文档。
+
+```shell
+git checkout -b hello-simobject
+```
+
+
+
+#### **步骤 1：为新的模拟对象创建 Python 类**
+
+**每个模拟对象都有一个与之关联的 Python 类**。**这个 Python 类描述了可以通过 Python 配置文件控制的模拟对象参数**。对于我们这个简单的 SimObject，一开始不需要任何参数。因此，我们只需为我们的 SimObject 声明一个新类，并设置它的名称和定义 SimObject C++ 类的 C++ 头文件。
+
+我们可以在 src/learning_gem5/part2 中创建文件 HelloObject.py。如果你已经克隆了 gem5 软件源，本教程中提到的文件就会在 src/learning_gem5/part2 和 configs/learning_gem5/part2 下完成。你可以删除这些文件或将它们移到其他地方，以便跟上本教程。
+
+```python
+from m5.params import *
+from m5.SimObject import SimObject
+
+class HelloObject(SimObject):
+    type = 'HelloObject'
+    cxx_header = "learning_gem5/part2/hello_object.hh"
+    cxx_class = "gem5::HelloObject"
+```
+
+并不要求类型与类名相同，但这是惯例。类型就是您要用这个 Python SimObject 封装的 C++ 类。只有在特殊情况下，类型和类名才应该不同。
+
+**cxx_header** 是包含作为类型参数的类的声明的**文件**。按照惯例，SimObject 的名称应使用小写字母和下划线，但这只是惯例。您可以在此指定任何头文件。
+
+**cxx_class** 是一个**属性**，指定新创建的模拟对象是在 gem5 命名空间中声明的。gem5 代码库中的大多数 SimObject 都是在 gem5 命名空间中声明的！
+
+
+
+#### **步骤2：用 C++ 实现模拟对象**
+
+接下来，我们需要在 src/learning_gem5/part2/ 目录下创建 hello_object.hh 和 hello_object.cc，它们将实现 HelloObject。
+
+我们将从 C++ 对象的头文件开始。按照惯例，gem5 会将所有头文件封装在 #ifndef/#endif 中，并注明文件名及其所在目录，这样就不会出现循环包含的情况。
+
+SimObjects 应在 gem5 命名空间内声明。因此，我们在 gem5 名称空间范围内声明我们的类。
+
+我们在文件中唯一需要做的就是声明我们的类。由于 HelloObject 是一个 SimObject，它必须继承于 C++ SimObject 类。大多数情况下，SimObject 的父类是 SimObject 的子类，而不是 SimObject 本身。
+
+SimObject 类指定了许多虚函数。不过，这些函数都不是纯粹的虚函数，因此在最简单的情况下，除了构造函数外，无需实现任何函数。
+
+**所有 SimObject 的构造函数都假定它将接收一个参数对象**。**这个参数对象是由构建系统自动创建的，它基于 SimObject 的 Python 类，**就像我们上面创建的那个一样。该参数类型的名称由对象名称自动生成。对于我们的 "HelloObject"，参数类型的名称是 "HelloObjectParams"。
+
+下面列出了我们的简单头文件所需的代码。
+
+```c++
+#ifndef __LEARNING_GEM5_HELLO_OBJECT_HH__
+#define __LEARNING_GEM5_HELLO_OBJECT_HH__
+
+#include "params/HelloObject.hh"
+#include "sim/sim_object.hh"
+
+namespace gem5
+{
+
+class HelloObject : public SimObject
+{
+  public:
+    HelloObject(const HelloObjectParams &p);
+};
+
+} // namespace gem5
+
+#endif // __LEARNING_GEM5_HELLO_OBJECT_HH__
+```
+
+接下来，我们需要在 .cc 文件中实现两个函数，而不仅仅是一个。第一个函数是 HelloObject 的构造函数。在这里，我们只需将参数对象传递给 SimObject 父对象，并打印 "Hello world！"
+
+**通常情况下，你绝不会在 gem5 中使用 std::cout，而是应该使用调试标志。**在下一章中，我们将对此进行修改，改用调试标志。不过，现在我们只需使用 std::cout，因为它很简单。
+
+```c++
+#include "learning_gem5/part2/hello_object.hh"
+
+#include <iostream>
+
+namespace gem5
+{
+
+HelloObject::HelloObject(const HelloObjectParams &params) :
+    SimObject(params)
+{
+    std::cout << "Hello World! From a SimObject!" << std::endl;
+}
+
+} // namespace gem5
+```
+
+注意：如果模拟对象的构造函数遵循以下签名、
+
+```c++
+Foo(const FooParams &)
+```
+
+则将自动定义 FooParams::create() 方法。create() 方法的目的是调用 SimObject 构造函数并返回一个 SimObject 实例。大多数 SimObject 都将遵循这种模式；但是，如果您的 SimObject 不遵循这种模式，gem5 SimObject 文档将提供更多有关手动实现 create() 方法的信息。
+
+
+
+#### **步骤3：注册模拟对象和 C++ 文件**
+
+为了编译 C++ 文件和解析 Python 文件，我们需要将这些文件告知编译系统。**gem5 使用 SCons 作为编译系统**，**因此您只需在包含 SimObject 代码的目录中创建一个 SConscript 文件。如果该目录下已有 SConscript 文件，只需在该文件中添加以下声明即可。**
+
+该文件只是一个普通的 Python 文件，因此您可以在该文件中编写任何 Python 代码。gem5 可利用这一点来自动创建 SimObjects 代码，并编译 SLICC 和 ISA 语言等特定领域语言。
+
+在 SConscript 文件中，有许多函数是在导入后自动定义的。请参阅相关章节...
+
+要编译新的 SimObject，只需在 src/learning_gem5/part2 目录下新建一个名为 "SConscript "的文件。在该文件中，您必须声明 SimObject 和 .cc 文件。下面是所需代码。
+
+```scons
+Import('*')
+
+SimObject('HelloObject.py', sim_objects=['HelloObject'])
+Source('hello_object.cc')
+```
+
+
+
+#### **步骤4：（re-)build gem5**
+
+要编译和链接新文件，你只需重新编译 gem5。下面的示例假定你使用的是 x86 ISA，但我们的对象中没有任何要求 ISA 的内容，因此它可以在 gem5 的任何 ISA 下运行。
+
+```shell
+scons build/X86/gem5.opt
+```
+
+
+
+#### 步骤5：创建配置脚本以使用新的模拟对象
+
+现在您已经实现了一个 SimObject，并已将其编译到 gem5 中，您需要在 configs/learning_gem5/part2 中创建或修改一个 Python 配置文件 run_hello.py，以实例化您的对象。由于您的对象非常简单，因此不需要系统对象！除了 Root 对象外，不需要 CPU、缓存或其他任何东西。**所有 gem5 实例都需要一个 Root 对象。**
+
+**在创建一个非常简单的配置脚本时，首先，导入 m5 和你编译的所有对象。**
+
+```python
+import m5
+from m5.objects import *
+```
+
+接下来，你必须按照所有 gem5 实例的要求实例化 Root 对象。
+
+```python
+root = Root(full_system = False)
+```
+
+现在，您可以实例化您创建的 HelloObject。您需要做的就是调用 Python "构造函数"。稍后，我们将了解如何通过 Python 构造函数指定参数。除了创建对象的实例外，您还需要确保它是根对象的子对象。在 C++ 中，只有根对象的子对象才能被实例化。
+
+```python
+root.hello = HelloObject()
+```
+
+最后，需要调用 m5 模块的实例化，并实际运行模拟！
+
+```python
+m5.instantiate()
+
+print("Beginning simulation!")
+exit_event = m5.simulate()
+print('Exiting @ tick {} because {}'
+      .format(m5.curTick(), exit_event.getCause()))
+```
+
+```shell
+[gem5/X86/目录下] $ ./gem5.opt /home/dell/jhlu/gem5_hbm/gem5/configs/learning_gem5/part2/run_simple.py
+```
+
+
+
+修改 src/ 目录中的文件后，请记得重建 gem5。运行配置文件的命令行位于下面输出中的 "命令行："之后。输出结果应如下所示：
+
+注意：如果未来章节 "为模拟对象添加参数和更多事件"（goodbye_object）的代码位于 src/learning_gem5/part2 目录中，run_hello.py 将导致错误。如果删除这些文件或将它们移到 gem5 目录之外，run_hello.py 就会得到下面的输出结果。
+
+
+
+## Debugging gem5
+
+在前几章中，我们介绍了如何创建一个非常简单的 SimObject。在本章中，我们将用 gem5 的调试支持取代简单的打印到 stdout。
+
+gem5通过**调试标记（debug flags）**为你的代码提供printf风格的跟踪/调试支持。这些标志允许每个组件拥有许多调试-打印语句，而无需同时启用所有这些语句。运行 gem5 时，你可以在命令行中指定启用哪些调试标记。
+
+### Using debug flags
+
+例如，在运行 simple-config-chapter 中的第一个 simple.py 脚本时，如果启用 DRAM 调试标志，就会得到以下输出。请注意，这会在控制台中产生大量输出（约 7 MB）。
+
+```shell
+ build/X86/gem5.opt --debug-flags=DRAM configs/learning_gem5/part1/simple.py | head -n 50
+```
+
+```shell
+[build/X86] ./gem5.opt --debug-flags=DRAM ../../configs/learning_gem5/part1/simple.py | head -n 50
+```
+
+```shell
+gem5 Simulator System.  http://gem5.org
+DRAM device capacity (gem5 is copyrighted software; use the --copyright option for details.
+
+gem5 compiled Jan  3 2017 16:03:38
+gem5 started Jan  3 2017 16:09:53
+gem5 executing on chinook, pid 19223
+command line: build/X86/gem5.opt --debug-flags=DRAM configs/learning_gem5/part1/simple.py
+
+Global frequency set at 1000000000000 ticks per second
+      0: system.mem_ctrl: Memory capacity 536870912 (536870912) bytes
+      0: system.mem_ctrl: Row buffer size 8192 bytes with 128 columns per row buffer
+      0: system.remote_gdb.listener: listening for remote gdb #0 on port 7000
+Beginning simulation!
+info: Entering event queue @ 0.  Starting simulation...
+      0: system.mem_ctrl: recvTimingReq: request ReadReq addr 400 size 8
+      0: system.mem_ctrl: Read queue limit 32, current size 0, entries needed 1
+      0: system.mem_ctrl: Address: 400 Rank 0 Bank 0 Row 0
+      0: system.mem_ctrl: Read queue limit 32, current size 0, entries needed 1
+      0: system.mem_ctrl: Adding to read queue
+      0: system.mem_ctrl: Request scheduled immediately
+      0: system.mem_ctrl: Single request, going to a free rank
+      0: system.mem_ctrl: Timing access to addr 400, rank/bank/row 0 0 0
+      0: system.mem_ctrl: Activate at tick 0
+      0: system.mem_ctrl: Activate bank 0, rank 0 at tick 0, now got 1 active
+      0: system.mem_ctrl: Access to 400, ready at 46250 bus busy until 46250.
+  46250: system.mem_ctrl: processRespondEvent(): Some req has reached its readyTime
+  46250: system.mem_ctrl: number of read entries for rank 0 is 0
+  46250: system.mem_ctrl: Responding to Address 400..   46250: system.mem_ctrl: Done
+  77000: system.mem_ctrl: recvTimingReq: request ReadReq addr 400 size 8
+  77000: system.mem_ctrl: Read queue limit 32, current size 0, entries needed 1
+  77000: system.mem_ctrl: Address: 400 Rank 0 Bank 0 Row 0
+  77000: system.mem_ctrl: Read queue limit 32, current size 0, entries needed 1
+  77000: system.mem_ctrl: Adding to read queue
+  77000: system.mem_ctrl: Request scheduled immediately
+  77000: system.mem_ctrl: Single request, going to a free rank
+  77000: system.mem_ctrl: Timing access to addr 400, rank/bank/row 0 0 0
+  77000: system.mem_ctrl: Access to 400, ready at 101750 bus busy until 101750.
+ 101750: system.mem_ctrl: processRespondEvent(): Some req has reached its readyTime
+ 101750: system.mem_ctrl: number of read entries for rank 0 is 0
+ 101750: system.mem_ctrl: Responding to Address 400..  101750: system.mem_ctrl: Done
+ 132000: system.mem_ctrl: recvTimingReq: request ReadReq addr 400 size 8
+ 132000: system.mem_ctrl: Read queue limit 32, current size 0, entries needed 1
+ 132000: system.mem_ctrl: Address: 400 Rank 0 Bank 0 Row 0
+ 132000: system.mem_ctrl: Read queue limit 32, current size 0, entries needed 1
+ 132000: system.mem_ctrl: Adding to read queue
+ 132000: system.mem_ctrl: Request scheduled immediately
+ 132000: system.mem_ctrl: Single request, going to a free rank
+ 132000: system.mem_ctrl: Timing access to addr 400, rank/bank/row 0 0 0
+ 132000: system.mem_ctrl: Access to 400, ready at 156750 bus busy until 156750.
+ 156750: system.mem_ctrl: processRespondEvent(): Some req has reached its readyTime
+ 156750: system.mem_ctrl: number of read entries for rank 0 is 0
+```
+
+
+
+或者，您可能希望根据 CPU 正在执行的确切指令进行调试。为此，Exec 调试标志可能很有用。该调试标志会显示模拟 CPU 如何执行每条指令的详细信息。
+
+```shell
+build/X86/gem5.opt --debug-flags=Exec configs/learning_gem5/part1/simple.py | head -n 50
+```
+
+```shell
+[build/X86] ./gem5.opt --debug-flags=Exec ../../configs/learning_gem5/part1/simple.py | head -n 50
+```
+
+```shell
+gem5 Simulator System.  http://gem5.org
+gem5 is copyrighted software; use the --copyright option for details.
+
+gem5 compiled Jan  3 2017 16:03:38
+gem5 started Jan  3 2017 16:11:47
+gem5 executing on chinook, pid 19234
+command line: build/X86/gem5.opt --debug-flags=Exec configs/learning_gem5/part1/simple.py
+
+Global frequency set at 1000000000000 ticks per second
+      0: system.remote_gdb.listener: listening for remote gdb #0 on port 7000
+warn: ClockedObject: More than one power state change request encountered within the same simulation tick
+Beginning simulation!
+info: Entering event queue @ 0.  Starting simulation...
+  77000: system.cpu T0 : @_start    : xor   rbp, rbp
+  77000: system.cpu T0 : @_start.0  :   XOR_R_R : xor   rbp, rbp, rbp : IntAlu :  D=0x0000000000000000
+ 132000: system.cpu T0 : @_start+3    : mov r9, rdx
+ 132000: system.cpu T0 : @_start+3.0  :   MOV_R_R : mov   r9, r9, rdx : IntAlu :  D=0x0000000000000000
+ 187000: system.cpu T0 : @_start+6    : pop rsi
+ 187000: system.cpu T0 : @_start+6.0  :   POP_R : ld   t1, SS:[rsp] : MemRead :  D=0x0000000000000001 A=0x7fffffffee30
+ 250000: system.cpu T0 : @_start+6.1  :   POP_R : addi   rsp, rsp, 0x8 : IntAlu :  D=0x00007fffffffee38
+ 250000: system.cpu T0 : @_start+6.2  :   POP_R : mov   rsi, rsi, t1 : IntAlu :  D=0x0000000000000001
+ 360000: system.cpu T0 : @_start+7    : mov rdx, rsp
+ 360000: system.cpu T0 : @_start+7.0  :   MOV_R_R : mov   rdx, rdx, rsp : IntAlu :  D=0x00007fffffffee38
+ 415000: system.cpu T0 : @_start+10    : and    rax, 0xfffffffffffffff0
+ 415000: system.cpu T0 : @_start+10.0  :   AND_R_I : limm   t1, 0xfffffffffffffff0 : IntAlu :  D=0xfffffffffffffff0
+ 415000: system.cpu T0 : @_start+10.1  :   AND_R_I : and   rsp, rsp, t1 : IntAlu :  D=0x0000000000000000
+ 470000: system.cpu T0 : @_start+14    : push   rax
+ 470000: system.cpu T0 : @_start+14.0  :   PUSH_R : st   rax, SS:[rsp + 0xfffffffffffffff8] : MemWrite :  D=0x0000000000000000 A=0x7fffffffee28
+ 491000: system.cpu T0 : @_start+14.1  :   PUSH_R : subi   rsp, rsp, 0x8 : IntAlu :  D=0x00007fffffffee28
+ 546000: system.cpu T0 : @_start+15    : push   rsp
+ 546000: system.cpu T0 : @_start+15.0  :   PUSH_R : st   rsp, SS:[rsp + 0xfffffffffffffff8] : MemWrite :  D=0x00007fffffffee28 A=0x7fffffffee20
+ 567000: system.cpu T0 : @_start+15.1  :   PUSH_R : subi   rsp, rsp, 0x8 : IntAlu :  D=0x00007fffffffee20
+ 622000: system.cpu T0 : @_start+16    : mov    r15, 0x40a060
+ 622000: system.cpu T0 : @_start+16.0  :   MOV_R_I : limm   r8, 0x40a060 : IntAlu :  D=0x000000000040a060
+ 732000: system.cpu T0 : @_start+23    : mov    rdi, 0x409ff0
+ 732000: system.cpu T0 : @_start+23.0  :   MOV_R_I : limm   rcx, 0x409ff0 : IntAlu :  D=0x0000000000409ff0
+ 842000: system.cpu T0 : @_start+30    : mov    rdi, 0x400274
+ 842000: system.cpu T0 : @_start+30.0  :   MOV_R_I : limm   rdi, 0x400274 : IntAlu :  D=0x0000000000400274
+ 952000: system.cpu T0 : @_start+37    : call   0x9846
+ 952000: system.cpu T0 : @_start+37.0  :   CALL_NEAR_I : limm   t1, 0x9846 : IntAlu :  D=0x0000000000009846
+ 952000: system.cpu T0 : @_start+37.1  :   CALL_NEAR_I : rdip   t7, %ctrl153,  : IntAlu :  D=0x00000000004001ba
+ 952000: system.cpu T0 : @_start+37.2  :   CALL_NEAR_I : st   t7, SS:[rsp + 0xfffffffffffffff8] : MemWrite :  D=0x00000000004001ba A=0x7fffffffee18
+ 973000: system.cpu T0 : @_start+37.3  :   CALL_NEAR_I : subi   rsp, rsp, 0x8 : IntAlu :  D=0x00007fffffffee18
+ 973000: system.cpu T0 : @_start+37.4  :   CALL_NEAR_I : wrip   , t7, t1 : IntAlu :
+1042000: system.cpu T0 : @__libc_start_main    : push   r15
+1042000: system.cpu T0 : @__libc_start_main.0  :   PUSH_R : st   r15, SS:[rsp + 0xfffffffffffffff8] : MemWrite :  D=0x0000000000000000 A=0x7fffffffee10
+1063000: system.cpu T0 : @__libc_start_main.1  :   PUSH_R : subi   rsp, rsp, 0x8 : IntAlu :  D=0x00007fffffffee10
+1118000: system.cpu T0 : @__libc_start_main+2    : movsxd   rax, rsi
+1118000: system.cpu T0 : @__libc_start_main+2.0  :   MOVSXD_R_R : sexti   rax, rsi, 0x1f : IntAlu :  D=0x0000000000000001
+1173000: system.cpu T0 : @__libc_start_main+5    : mov  r15, r9
+1173000: system.cpu T0 : @__libc_start_main+5.0  :   MOV_R_R : mov   r15, r15, r9 : IntAlu :  D=0x0000000000000000
+1228000: system.cpu T0 : @__libc_start_main+8    : push r14
+```
+
+事实上，Exec 标志实际上是多个调试标志的集合。通过使用 --debug-help 参数运行 gem5，你可以看到这一点以及所有可用的调试标志。
+
+## Adding a new debug flag
+
+在前几章中，我们使用简单的 std::cout 从模拟对象中打印。虽然可以在 gem5 中使用普通的 C/C++ I/O，但这是极不可取的。因此，我们现在要使用gem5的调试工具来取代它。
+
+创建新的调试标记时，我们首先要在 SConscript 文件中声明它。将以下内容添加到包含 hello 对象代码的目录（src/learning_gem5/SConscript）中的 SConscript 文件中。
+
+```scons
+DebugFlag('HelloExample')
+```
+
+这样就声明了一个调试标志 "HelloExample"。**现在，我们可以在模拟对象的调试语句中使用该标志。**
+
+**通过在 SConscript 文件中声明调试标志，会自动生成一个调试头文件，允许我们使用调试标志**。头文件位于调试目录中，其名称（和大小写）与我们在 SConscript 文件中声明的名称相同。因此，我们需要在任何计划使用调试标记的文件中包含自动生成的头文件。
+
+在 hello_object.cc 文件中，我们需要包含头文件。
+
+```c++
+#include "base/trace.hh"
+#include "debug/HelloExample.hh"
+```
+
+现在我们已经包含了必要的头文件，让我们用这样的调试语句替换 std::cout 调用。
+
+```C++
+DPRINTF(HelloExample, "Created the hello object\n");
+```
+
+DPRINTF 是一个 C++ 宏。**第一个参数是 SConscript 文件中声明的调试标志**。我们可以使用 HelloExample 标志，因为我们在 src/learning_gem5/SConscript 文件中声明了它。**其余参数都是变量，可以是任何传递给 printf 语句的参数**。
+
+现在，如果重新编译 gem5 并使用 "HelloExample "调试标记运行，就会得到如下结果。
+
+
+
+## 事件驱动编程
+
+gem5 是一个事件驱动的模拟器。在本章中，我们将探讨如何创建和调度事件。我们将从 hello-simobject 章节中的简单 HelloObject 开始构建。
+
+### 创建简单的事件回调
+
+在 gem5 的事件驱动模型中，**每个事件都有一个处理该事件的回调函数**。一般来说，这是一个继承自 :cppEvent 的类。不过，gem5 提供了一个用于创建简单事件的封装函数。
+
+在 HelloObject 的头文件中，我们只需声明一个新函数（processEvent()），每次事件触发时都执行该函数。该函数必须不带参数，也不返回任何内容。
+
+接下来，我们添加一个事件实例。在本例中，我们将使用 EventFunctionWrapper，它允许我们执行任何函数。
+
+我们还添加了一个启动（）函数，下文将对此进行说明。
+
+```c++
+class HelloObject : public SimObject
+{
+  private:
+    void processEvent();
+
+    EventFunctionWrapper event;
+
+  public:
+    HelloObject(const HelloObjectParams &p);
+
+    void startup() override;
+};
+```
+
+
+
+接下来，我们必须在 HelloObject 的构造函数中构造该事件。EventFuntionWrapper 有两个参数，一个是要执行的函数，另一个是名称。名称通常是拥有该事件的 SimObject 的名称。打印名称时，会在名称末尾自动添加".wrapped_function_event"。
+
+第一个参数是一个不带参数且没有返回值的函数（std::function<void(void)>）。通常，这是一个调用成员函数的简单 lambda 函数。不过，它也可以是任何你想要的函数。下面，我们在 lambda（[this]）中捕获了这个函数，因此我们可以调用类实例的成员函数。
+
+```c++
+HelloObject::HelloObject(const HelloObjectParams &params) :
+    SimObject(params), event([this]{processEvent();}, name())
+{
+    DPRINTF(HelloExample, "Created the hello object\n");
+}
+```
+
+我们还必须定义进程函数的实现。在这种情况下，如果要进行调试，我们只需打印一些内容即可。
+
+```c++
+void
+HelloObject::processEvent()
+{
+    DPRINTF(HelloExample, "Hello world! Processing the event!\n");
+}
+```
+
+
+
+### 调度事件
+
+最后，要处理事件，我们首先要对事件进行调度。为此，我们使用 :cppschedule 函数。该函数将某个事件实例调度到未来某个时间（事件驱动模拟不允许事件在过去执行）。
+
+我们最初将在添加到 HelloObject 类的 startup() 函数中调度事件。startup() 函数是允许模拟对象安排内部事件的地方。直到模拟第一次开始（即从 Python 配置文件调用 simulate() 函数），它才会被执行。
+
+```c++
+void
+HelloObject::startup()
+{
+    schedule(event, 100);
+}
+```
+
+在这里，我们只需将事件安排在 tick 100 时执行。通常，你会使用 curTick() 的某个偏移量，但由于我们知道启动()函数是在当前时间为 0 时调用的，所以我们可以使用一个明确的刻度值。
+
+使用 "HelloExample "调试标记运行 gem5 时的输出现在是
+
+```shell
+gem5 Simulator System.  http://gem5.org
+gem5 is copyrighted software; use the --copyright option for details.
+
+gem5 compiled Jan  4 2017 11:01:46
+gem5 started Jan  4 2017 13:41:38
+gem5 executing on chinook, pid 1834
+command line: build/X86/gem5.opt --debug-flags=Hello configs/learning_gem5/part2/run_hello.py
+
+Global frequency set at 1000000000000 ticks per second
+      0: hello: Created the hello object
+Beginning simulation!
+info: Entering event queue @ 0.  Starting simulation...
+    100: hello: Hello world! Processing the event!
+Exiting @ tick 18446744073709551615 because simulate() limit reached
+```
+
+
+
+### 更多的事件调度
+
+我们还可以在事件处理操作中安排新事件。例如，我们将为 HelloObject 添加一个延迟参数，并为触发事件的次数添加一个参数。在下一章中，我们将通过 Python 配置文件访问这些参数。
+
+在 HelloObject 类声明中，为延迟和触发次数添加一个成员变量。
+
+```c++
+class HelloObject : public SimObject
+{
+  private:
+    void processEvent();
+
+    EventFunctionWrapper event;
+
+    const Tick latency;
+
+    int timesLeft;
+
+  public:
+    HelloObject(const HelloObjectParams &p);
+
+    void startup() override;
+};
+```
+
+然后，在构造函数中为延迟和剩余时间添加默认值。
+
+```c++
+HelloObject::HelloObject(const HelloObjectParams &params) :
+    SimObject(params), event([this]{processEvent();}, name()),
+    latency(100), timesLeft(10)
+{
+    DPRINTF(HelloExample, "Created the hello object\n");
+}
+```
+
+最后，更新 startup() 和 processEvent()。
+
+```c++
+void
+HelloObject::startup()
+{
+    schedule(event, latency);
+}
+
+void
+HelloObject::processEvent()
+{
+    timesLeft--;
+    DPRINTF(HelloExample, "Hello world! Processing the event! %d left\n", timesLeft);
+
+    if (timesLeft <= 0) {
+        DPRINTF(HelloExample, "Done firing!\n");
+    } else {
+        schedule(event, curTick() + latency);
+    }
+}
+```
+
+现在，当我们运行 gem5 时，事件应触发 10 次，模拟将在 1000 ticks 后结束。现在的输出应该如下所示。
+
+```shell
+gem5 Simulator System.  http://gem5.org
+gem5 is copyrighted software; use the --copyright option for details.
+
+gem5 compiled Jan  4 2017 13:53:35
+gem5 started Jan  4 2017 13:54:11
+gem5 executing on chinook, pid 2326
+command line: build/X86/gem5.opt --debug-flags=Hello configs/learning_gem5/part2/run_hello.py
+
+Global frequency set at 1000000000000 ticks per second
+      0: hello: Created the hello object
+Beginning simulation!
+info: Entering event queue @ 0.  Starting simulation...
+    100: hello: Hello world! Processing the event! 9 left
+    200: hello: Hello world! Processing the event! 8 left
+    300: hello: Hello world! Processing the event! 7 left
+    400: hello: Hello world! Processing the event! 6 left
+    500: hello: Hello world! Processing the event! 5 left
+    600: hello: Hello world! Processing the event! 4 left
+    700: hello: Hello world! Processing the event! 3 left
+    800: hello: Hello world! Processing the event! 2 left
+    900: hello: Hello world! Processing the event! 1 left
+   1000: hello: Hello world! Processing the event! 0 left
+   1000: hello: Done firing!
+Exiting @ tick 18446744073709551615 because simulate() limit reached
+```
+
+
+
+# 附录：问题合集
+
+1.gem5_hybrid2 使用python3版本，服务器上的gem5使用python2.7版本。最新gem5和gem5_hybrid2版本弃用了python2.7.
+
+两种解决方案：单独在一台服务器配置完全的python3环境；在同一台机器上同时使用Python2.7和Python3来编译不同版本的gem5；
+
+**最好的解决方案 直接使用`/usr/bin/env python3 $(which scons)`  强行python3编译** 所以并未修改默认python版本
+
+但是需要退出`fish shell`（一个我常用的终端），这里有语法冲突。
+
+
+
+Hybrid2 环境要求： 
+
+参考 Hybrid^2^             Sconstruct
+
+```python
+gem5_Hybrid2/Sconstruct
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+[Line 315] We always use C++14
+[Line 340] if compareVersions(main['CXXVERSION'], "5") < 0: (GCC版本>=5)
+[Line 370] if compareVersions(main['CXXVERSION'], "3.9") < 0: (Clang 版本>=3.9)
+[Line 455] # Based on the availability of the compress stream wrappers, require 2.1.0. (Protobuf版本>=2.1.0)\
+[Line 456] min_protoc_version = '2.1.0' (Protobuf版本>=2.1.0)
+```
+
+
+
+同一台机器不同程序需要不同环境时，只需更改优先级，数字越大，优先级越高；最高优先级为默认版本。
+
+```shell
+sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-5 50 //更改gcc版本优先级
+```
+
+```shell
+sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-4.8 60 //将gcc回退到4.8版本，让gem5重新能跑
+```
+
+```shell
+sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-4.8 40 //将gcc版本设置为5,让hybrid2能跑
+```
+
+```shell
+sudo update-alternatives --config gcc //查看版本优先级
+```
+
+g++同理
+
+`scons -h` 查看warning部分
+
+* Warning: Can't enable object file debug section compression
+
+* Warning: Can't enable executable debug section compression
+
+* Warning: Couldn't find any HDF5 C++ libraries. Disabling HDF5 support
+
+[看教程，Warning不重要]
+
+
+
+重新编译protobuf-2.5.0 [~/gem5/protobuf-2.5.0]
+
+```shell
+./autogen.sh    
+./configure    
+make -j8
+make check    
+sudo make install    
+sudo ldconfig
+```
+
+```shell
+cd python
+python setup.py build
+python setup.py test
+python setup.py install
+```
+
+这一步 python setup.py install 报错，但是使用python import google.protobuf未报错【暂时忽略】
+
+最后`build/X86/gem5.opt`编译成功
+
+**所以之前出现`‘kEmptyString’`的问题是用老版本的gcc/g++编译protobuf ！** **需要用新的gcc....重新编译protobuf !**
+
+...貌似Hybrid2应该`build/ARM/gem5.opt`编译,重新使用`build/ARM/gem5.opt`编译
+
+![](D:\桌面\DesktopFile\md笔记\src\gem5_run_arm.png)
+
+这是个`gem5_hybrid2/run.sh`的最后几行,应该表示的是用的ARM吧
+
+
+
+接下来已经可以正常使用了
+
+```shell
+bash run.sh <benchmark_name (e.g. mcf_r)>
+```
+
+问题就只剩两个目录GEM_DIR / BENCH_DIR
+
+ ```python
+gem5_hybrid2/run.sh
+>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>>
+GEM5_DIR=/home/yifan/gem5_huawei_nomemcpy_timing_swap
+BENCH_DIR=/home/yifan/spec2017_build_float_huawei_nomemcpy_timing_swap
+RUN_SUFFIX=run_base_refrate_testarm-64.0000
+ ```
+
+
+
+将`SPEC-CPU-2017.iso.zip`下载到上级目录下
+
+准备SPEC2017的安装和部署
+
+Hybrid^2^采用ARM架构，所以SPEC2017的安装按照ARM指令集
+
+参考链接：
+
+（1）[speccpu2017的安装与运行-CSDN博客](https://blog.csdn.net/weixin_45520085/article/details/131303231)
+
+（2）[Gem5(SE模式)上运行SPEC2017教程 - 知乎 (zhihu.com)](https://zhuanlan.zhihu.com/p/222595617)
+
+```shell
+cd xxx    #切换到cpu2017.iso所在的目录下
+sudo mount -t iso9660 -o ro,exec,loop spec2017.iso /mnt    #挂载cpu2017.iso镜像文件
+cd /mnt    #切换目录到挂载目录
+./install.sh    #运行spec2017的安装文件，并指定其安装路径（以/root/cpu2017为例）
+
+# 修改配置文件
+#在speccpu2017/config目录下，有speccpu2017自带的配置文件，我们可以复制后修改相应的代码进行使用，在这里我使用的是ARM架构，因#此复制Example-gcc-linux-aarch64.cfg文件，并将复制的文件命名为aarch64.cfg。
+#并将修改文件中的gcc路径：
+
+# **修改前：**
+# %ifndef %{gcc_dir}
+# %   define  gcc_dir        /opt/rh/devtoolset-6/root/usr  # EDIT (see above)
+# %endif
+
+# **修改后：**
+# %ifndef %{gcc_dir}
+# %   define  gcc_dir        /usr  # EDIT (see above)
+# %endif
+
+cd spec2017/    #切换到安装目录中
+source shrc
+runcpu --config=aarch64 --action setup --size=test all    #通过size参数可以指定程序输入数据规模大小(test、train、ref)
+```
+
+按照（1）  runcpu 时  
+
+`Using 'linux-x86_64' tools` 编译 aarch64 ???
+
+![](D:\桌面\DesktopFile\md笔记\src\spec_bug.png)
+
+应该是`using 'linux-aarch64' tools `才对
+
+但是好像还是能编译？因为用了交叉编译链工具 ??
+
+```shell
+// 安装.c转二进制文件的交叉编译链工具
+sudo apt-get install gcc-aarch64-linux-gnu
+// 安装.cpp转二进制文件的交叉编译链工具
+sudo apt-get install g++-aarch64-linux-gnu
+// 安装gfortran交叉编译链工具
+sudo apt-get install gfortran-aarch64-linux-gnu
+```
+
+* `uname -a`得到本机是linux-x86_64，在x86上从源码编译到ARM binary，这是**交叉编译**；如果从x86 binary生成ARM binary,就是**二进制翻译**。 
+
+* hybrid2 的 `run.sh`最后几行
+
+```shell
+$GEM5_DIR/build/ARM/gem5.opt  $GEM5_DIR/configs/hybrid/hbm_se.py --num-cpus=1 --cpu-type=TimingSimp ......
+```
+
+不确定这里能不能改成 /build/X86/gem5.opt , 如果可以的话 ，事情就变得简单了 。
+
+
+
+实测没有必要，但是需要修改：
+
+修改`spec2017/config/aarch64.cfg`的`lable`，将`mytest`更改为`testarm`，然后重新`runcpu`一次
+
+因为`gem5_hybrid2/run.sh`里的各种路径文件名的`lable`是`testarm`
+
+另一种方式，即使修改了整个`run.sh`的`testarm`，最后`bash run.sh <benchmark>`的时候还是会有无法找到的报错提示
+
+这种省时间的方式很可惜不可行，只能重新`runcpu`，耗时较久。
+
